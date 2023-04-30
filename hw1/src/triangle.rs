@@ -2,21 +2,22 @@ use glam::*;
 
 pub struct Triangle {
     v: [Vec3; 3],
-    color: [Vec3; 3],
+    color: [Vec4; 3],
     tex_coords: [Vec2; 3],
     normal: [Vec3; 3],
 }
 
-macro_rules! assert_color {
+macro_rules! assert_color_is_rgba32float {
     ($color: expr) => {
         assert!($color[0] >= 0.0 && $color[0] <= 1.0);
         assert!($color[1] >= 0.0 && $color[1] <= 1.0);
         assert!($color[2] >= 0.0 && $color[2] <= 1.0);
+        assert!($color[3] >= 0.0 && $color[3] <= 1.0);
     };
 }
 
 impl Triangle {
-    pub fn new() -> Self {
+    pub fn zeros() -> Self {
         Self {
             v: [
                 vec3(0.0, 0.0, 0.0),
@@ -24,9 +25,9 @@ impl Triangle {
                 vec3(0.0, 0.0, 0.0),
             ],
             color: [
-                vec3(0.0, 0.0, 0.0),
-                vec3(0.0, 0.0, 0.0),
-                vec3(0.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
             ],
             tex_coords: [
                 vec2(0.0, 0.0),
@@ -57,14 +58,20 @@ impl Triangle {
         self.v[index] = v;
     }
 
-    pub fn set_color(&mut self, index: usize, color: Vec3) {
-        assert_color!(color);
+    pub fn set_color(&mut self, index: usize, color: Vec4) {
+        assert_color_is_rgba32float!(color);
+        self.color[index] = color;
+    }
+
+    pub fn set_color_rgba(&mut self, index: usize, r: f32, g: f32, b: f32, a: f32) {
+        let color = vec4(r, g, b, a) / 255.0;
+        assert_color_is_rgba32float!(color);
         self.color[index] = color;
     }
 
     pub fn set_color_rgb(&mut self, index: usize, r: f32, g: f32, b: f32) {
-        let color = vec3(r, g, b) / 255.0;
-        assert_color!(color);
+        let color = vec4(r, g, b, 1.0) / 255.0;
+        assert_color_is_rgba32float!(color);
         self.color[index] = color;
     }
 
