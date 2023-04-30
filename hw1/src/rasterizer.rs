@@ -1,12 +1,16 @@
-use crate::triangle::Triangle;
-use crate::window::TextureConvertible;
+use crate::{triangle::Triangle, utils::render::KeyboardHandler};
+use crate::utils::render::TextureConvertible;
+use bitflags::bitflags;
 use glam::*;
-use half::f16;
 use std::{collections::HashMap, ffi::c_void, ops::Index};
 
-pub enum BufferKind {
-    Color,
-    Depth,
+bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct BufferKind: u32 {
+        const Color = 0b00000001;
+        const Depth = 0b00000010;
+        const All = Self::Color.bits() | Self::Depth.bits();
+    }
 }
 
 pub enum PrimitiveKind {
@@ -20,7 +24,8 @@ pub struct PosBufId(usize);
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct IndBufId(usize);
 
-pub struct Rasterizer {
+#[derive(Default)]
+pub struct Rasterizer{
     w: usize,
     h: usize,
 
@@ -33,14 +38,6 @@ pub struct Rasterizer {
     model: Mat4,
     view: Mat4,
     projection: Mat4,
-}
-
-fn f16_color(r: f16, g: f16, b: f16, a: f16) -> u64 {
-    unsafe { std::mem::transmute([r, g, b, a]) }
-}
-
-fn white() -> Vec4 {
-    vec4(1., 1., 1., 1.)
 }
 
 impl Rasterizer {
@@ -90,13 +87,11 @@ impl Rasterizer {
     }
 
     pub fn clear(&mut self, kind: BufferKind) {
-        match kind {
-            BufferKind::Color => {
-                self.frame_buf = vec![vec4(0., 0., 0., 1.); self.w * self.h];
-            }
-            BufferKind::Depth => {
-                self.depth_buf = vec![0.0; self.w * self.h];
-            }
+        if kind.contains(BufferKind::Color) {
+            self.frame_buf = vec![vec4(0., 0., 0., 1.); self.w * self.h];
+        }
+        if kind.contains(BufferKind::Depth) {
+            self.depth_buf = vec![0.0; self.w * self.h];
         }
     }
 
@@ -113,13 +108,13 @@ impl Rasterizer {
                     let mvp = self.projection * self.view * self.model;
 
                     ind.into_iter()
-                        .map(|i| {
+                        .map(|i: &UVec3| {
                             let mut t = Triangle::zeros();
 
                             vec![i.x, i.y, i.z]
                                 .iter()
                                 .map(|&i| {
-                                    let mut vec = mvp * buf[i as usize].extend(1.0);
+                                    let mut vec = mvp * (buf[i as usize].extend(1.0));
                                     vec /= vec.w;
                                     vec.x = 0.5 * (self.w as f32) * (vec.x + 1.0);
                                     vec.y = 0.5 * (self.h as f32) * (vec.y + 1.0);
@@ -166,7 +161,7 @@ impl Rasterizer {
         if steep {
             // iter by y
 
-            let range = if y1 > y0 { y0..y1 } else { y1..y0 };
+            let range = if y1 > y0 { y0..y1 + 1 } else { y1..y0 + 1 };
 
             for y in range {
                 let x = ((y as f32 - y0 as f32) / k + x0 as f32) as usize;
@@ -174,7 +169,7 @@ impl Rasterizer {
             }
         } else {
             // iter by x
-            let range = if x1 > x0 { x0..x1 } else { x1..x0 };
+            let range = if x1 > x0 { x0..x1 + 1 } else { x1..x0 + 1 };
 
             for x in range {
                 let y = (k * (x as f32 - x0 as f32) + (y0 as f32)) as usize;
@@ -190,8 +185,9 @@ impl Rasterizer {
     }
 
     pub fn set_pixel(&mut self, point: (usize, usize), color: Vec4) {
-        assert!(point.0 >= 0 || point.0 < self.w);
-        assert!(point.1 >= 0 || point.1 < self.h);
+        if point.0 >= self.w || point.1 >= self.h {
+            return;
+        };
 
         let i = (self.h - point.1) * self.w + point.0;
         self.frame_buf[i] = color;
@@ -231,5 +227,25 @@ impl TextureConvertible for Rasterizer {
 
     fn bytes_per_pixel(&self) -> usize {
         std::mem::size_of::<Vec4>()
+    }
+
+    fn dump_u8norm(&self) -> Vec<u8> {
+        self.frame_buf
+            .iter()
+            .flat_map(|it| {
+                [
+                    (it.x * 255.0) as u8,
+                    (it.y * 255.0) as u8,
+                    (it.z * 255.0) as u8,
+                    255,
+                ]
+            })
+            .collect()
+    }
+}
+
+impl KeyboardHandler for Rasterizer {
+    fn handle_keyboard_input(&self, input: winit::event::KeyboardInput) {
+        
     }
 }

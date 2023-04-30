@@ -1,38 +1,46 @@
 mod rasterizer;
-mod shader_types;
 mod transform;
 mod triangle;
-mod window;
+mod utils;
+
+use std::env;
 
 use crate::rasterizer::Rasterizer;
-use crate::shader_types::TexturedVertex;
 use crate::transform::*;
-use crate::triangle::Triangle;
-use crate::window::*;
+
+use core_graphics::geometry::CGSize;
 use glam::{uvec3, vec3};
 use metal::{Device, MTLPixelFormat, MTLResourceOptions};
-use objc::rc::autoreleasepool;
-use rasterizer::PrimitiveKind;
+use rasterizer::{BufferKind, PrimitiveKind};
+use utils::{image::save_image, render::*, shader_types::TexturedVertex};
 use winit::{
-    event::Event,
+    event::{VirtualKeyCode, WindowEvent, ElementState},
     event_loop::{ControlFlow, EventLoop},
 };
 
-const INITIAL_WINDOW_WIDTH: u32 = 600;
-const INITIAL_WINDOW_HEIGHT: u32 = 600;
+use objc::rc::autoreleasepool;
+use winit::event::Event;
+
+const TEXTURE_PIXEL_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA32Float;
 
 // CAMetalLayer only accepts the following pixel formats:
 // https://developer.apple.com/documentation/quartzcore/cametallayer/1478155-pixelformat
-const TEXTURE_PIXEL_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA32Float;
-const PIPE_LINE_PIXEL_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA8Unorm_sRGB;
+const PIPE_LINE_PIXEL_FORMAT: MTLPixelFormat = MTLPixelFormat::RGBA16Float;
+
 const VERTEX_SHADER_NAME: &str = "quad_vertex";
 const FRAGMENT_SHADER_NAME: &str = "sampling_shader";
 const SHADER_FILE_NAME: &str = env!("SHADER_FILE_NAME");
 
-fn main() {
-    let mut r = Rasterizer::new(INITIAL_WINDOW_WIDTH as _, INITIAL_WINDOW_HEIGHT as _);
+const INITIAL_WINDOW_WIDTH: u32 = 700;
+const INITIAL_WINDOW_HEIGHT: u32 = 700;
+const DELTA_ANGLE: f32 = 1.;
 
-    let mut t = Triangle::zeros();
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    let dump_image = args.len() >= 3;
+
+    let mut r = Rasterizer::new(INITIAL_WINDOW_WIDTH as _, INITIAL_WINDOW_HEIGHT as _);
 
     let pos_id = r.load_positions(vec![
         vec3(2.0, 0.0, -2.0),
@@ -45,11 +53,23 @@ fn main() {
     let eye_pos = vec3(0.0, 0.0, 5.0);
     let angle = 0f32;
 
+    r.clear(BufferKind::Color | BufferKind::Depth);
+
     r.set_model(get_model_matrix(angle));
     r.set_view(get_view_matrix(eye_pos));
     r.set_projection(get_projection_matrix(45.0, 1.0, 0.1, 50.0));
 
     r.draw(&pos_id, &ind_id, PrimitiveKind::Triangle);
+
+    if dump_image {
+        let angle = match args.get(2) {
+            Some(arg) => arg.parse::<f32>().unwrap_or(0.),
+            _ => 0.,
+        };
+        r.set_model(get_model_matrix(angle));
+        save_image(&r, args.get(3).unwrap_or(&String::from("output.png")));
+        return;
+    }
 
     let event_loop = EventLoop::new();
     let window = create_window(
@@ -72,7 +92,7 @@ fn main() {
     let vertex_data = get_vertices(viewport_size[0] as f32, viewport_size[1] as f32);
 
     let vertex_buffer = device.new_buffer_with_data(
-        vertex_data.as_ptr() as *const _,
+        vertex_data.as_ptr() as _,
         std::mem::size_of::<[TexturedVertex; 6]>() as _,
         MTLResourceOptions::CPUCacheModeDefaultCache | MTLResourceOptions::StorageModeShared,
     );
@@ -98,23 +118,56 @@ fn main() {
 
     let command_queue = device.new_command_queue();
 
+    let mut angle = 0f32;
+
     event_loop.run(move |event, _, control_flow| {
         autoreleasepool(|| {
             *control_flow = ControlFlow::Poll;
 
             match event {
-                Event::WindowEvent { event, .. } => {
-                    handle_window_event(event, control_flow, &layer, &viewport_size_buffer);
-                }
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                    WindowEvent::Resized(size) => {
+                        layer.set_drawable_size(CGSize {
+                            width: size.width as f64,
+                            height: size.height as f64,
+                        });
+                        update_viewport_size(&viewport_size_buffer, [size.width, size.height]);
+                    }
+                    WindowEvent::KeyboardInput { input, .. } => {
+                        if input.state == ElementState::Pressed {
+                            return;
+                        };
+                        match input.virtual_keycode {
+                            Some(VirtualKeyCode::A) => {
+                                angle += DELTA_ANGLE;
+                                // println!("angle: {}", angle);
+                            }
+                            Some(VirtualKeyCode::D) => {
+                                angle -= DELTA_ANGLE;
+                                // println!("angle: {}", angle);
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                },
                 Event::MainEventsCleared => window.request_redraw(),
-                Event::RedrawRequested(_) => redraw(
-                    &layer,
-                    &pipeline_state,
-                    &command_queue,
-                    &vertex_buffer,
-                    &viewport_size_buffer,
-                    &texture,
-                ),
+                Event::RedrawRequested(_) => {
+                    r.clear(BufferKind::Color | BufferKind::Depth);
+                    r.set_model(get_model_matrix(angle));
+                    r.draw(&pos_id, &ind_id, PrimitiveKind::Triangle);
+                    update_texture(&r, &texture);
+                    redraw(
+                        &layer,
+                        &pipeline_state,
+                        &command_queue,
+                        &vertex_buffer,
+                        &viewport_size_buffer,
+                        &texture,
+                    );
+                }
+
                 _ => {}
             }
         })

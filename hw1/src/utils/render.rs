@@ -1,27 +1,24 @@
+use cocoa::{appkit::NSView, base::id as cocoa_id};
+use core_graphics_types::geometry::CGSize;
+use metal::{
+    Buffer, CommandQueue, Device, Library, MTLClearColor, MTLLoadAction, MTLOrigin, MTLPixelFormat,
+    MTLPrimitiveType, MTLRegion, MTLResourceOptions, MTLSize, MTLStoreAction, MTLTextureUsage,
+    MetalLayer, MetalLayerRef, RenderPassDescriptor, RenderPassDescriptorRef,
+    RenderPipelineDescriptor, RenderPipelineState, Texture, TextureDescriptor, TextureRef,
+};
 use std::ffi::c_void;
 use std::path::PathBuf;
-use core_graphics_types::geometry::CGSize;
-use cocoa::{base::id as cocoa_id, appkit::NSView};
-use metal::{RenderPipelineDescriptor, RenderPassDescriptor, MetalLayer, Device, MTLPixelFormat,
-            MTLResourceOptions, NSRange, TextureDescriptor, MTLRegion, MTLOrigin, MTLSize, Texture,
-            Library, RenderPipelineState, MetalLayerRef, Buffer, CommandQueue, TextureRef,
-            RenderPassDescriptorRef, MTLLoadAction, MTLClearColor, MTLStoreAction, NSUInteger,
-            MTLPrimitiveType, MTLTextureUsage};
-
 
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{WindowEvent, KeyboardInput, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::platform::macos::WindowExtMacOS;
 use winit::window::Window;
-use crate::shader_types::{TexturedVertex, TextureIndex, VertexInput};
 
-pub fn create_window(
-    event_loop: &EventLoop<()>,
-    width: u32,
-    height: u32,
-    title: &str,
-) -> Window {
+use super::shader_types::*;
+
+
+pub fn create_window(event_loop: &EventLoop<()>, width: u32, height: u32, title: &str) -> Window {
     let window_size = LogicalSize::new(width, height);
 
     winit::window::WindowBuilder::new()
@@ -47,13 +44,10 @@ pub fn get_window_layer(
         height: inner_size.height as f64,
     });
 
-
     unsafe {
         let view_id = window.ns_view() as cocoa_id;
         view_id.setWantsLayer(true);
-        view_id.setLayer(
-            std::mem::transmute(layer.as_ref())
-        );
+        view_id.setLayer(std::mem::transmute(layer.as_ref()));
     };
 
     layer
@@ -63,12 +57,8 @@ pub fn get_metal_lib(metal_lib_name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(metal_lib_name)
 }
 
-
-pub fn get_vertices(
-    width: f32,
-    height: f32,
-) -> [TexturedVertex; 6] {
-    println!("Vertex: {width}, {height}");
+pub fn get_vertices(width: f32, height: f32) -> [TexturedVertex; 6] {
+    // println!("Vertex: {width}, {height}");
     let w = width as f32 / 2.;
     let h = height as f32 / 2.;
     [
@@ -81,24 +71,15 @@ pub fn get_vertices(
     ]
 }
 
-
-pub fn update_viewport_size(
-    viewport_size_buffer: &Buffer,
-    viewport_size: [u32; 2],
-) {
-    println!("{}, {}", viewport_size[0], viewport_size[1]);
+pub fn update_viewport_size(viewport_size_buffer: &Buffer, viewport_size: [u32; 2]) {
+    // println!("{}, {}", viewport_size[0], viewport_size[1]);
     let contents = viewport_size_buffer.contents();
 
     let byte_count = (viewport_size.len() * std::mem::size_of::<u32>()) as usize;
 
     unsafe {
-        std::ptr::copy(
-            viewport_size.as_ptr(),
-            contents as *mut u32,
-            byte_count,
-        );
+        std::ptr::copy(viewport_size.as_ptr(), contents as *mut u32, byte_count);
     };
-
 
     // viewport_size_buffer.did_modify_range(
     //     NSRange::new(0, byte_count as u64)
@@ -110,30 +91,15 @@ pub trait TextureConvertible {
     fn height(&self) -> usize;
     fn contents(&self) -> *const c_void;
     fn bytes_per_pixel(&self) -> usize;
+    fn dump_u8norm(&self) -> Vec<u8>;
 }
-
 
 pub fn create_texture<T: TextureConvertible>(
     source: &T,
     device: &Device,
     pixel_format: MTLPixelFormat,
 ) -> Texture {
-    // let image_data = include_bytes!("/Users/lizhen/Movies/Screenshot 2023-04-25 at 17.04.22.png");
-    // let decoder = png::Decoder::new(image_data.as_ref());
-    // let mut reader = decoder.read_info().unwrap();
-
-    // let info = reader.info();
-
-    // let (w, h) = (info.width as u64, info.height as u64);
-
-    // let mut buffer = vec![0; reader.output_buffer_size()];
-    // reader.next_frame(&mut buffer).unwrap();
-
-    // /* Swap R <-> B channels */
-    // for i in 0..buffer.len() / 4 {
-    //     let i = i * 4;
-    //     buffer.swap(i, i + 2);
-    // }
+    
     let w = source.width() as u64;
     let h = source.height() as u64;
     let bytes = source.contents();
@@ -142,7 +108,7 @@ pub fn create_texture<T: TextureConvertible>(
     texture.set_width(w);
     texture.set_height(h);
     texture.set_pixel_format(pixel_format);
-    texture.set_usage(MTLTextureUsage::RenderTarget | MTLTextureUsage::ShaderRead);
+    texture.set_usage(MTLTextureUsage::ShaderRead);
 
     let texture = device.new_texture(&texture);
 
@@ -163,6 +129,26 @@ pub fn create_texture<T: TextureConvertible>(
     texture
 }
 
+pub fn update_texture<T: TextureConvertible>(
+    src: &T, 
+    dst: &Texture,
+) {
+    let w = src.width() as u64;
+    dst.replace_region(
+        MTLRegion {
+            origin: MTLOrigin { x: 0, y: 0, z: 0 },
+            size: MTLSize {
+                width: w,
+                height: src.height() as _,
+                depth: 1,
+            },
+        },
+        0,
+        src.contents(),
+        w * (src.bytes_per_pixel() as u64),
+    );
+}
+
 pub fn prepare_pipeline_state(
     device: &Device,
     library: &Library,
@@ -171,14 +157,8 @@ pub fn prepare_pipeline_state(
     pixel_format: MTLPixelFormat,
 ) -> RenderPipelineState {
     let ps = RenderPipelineDescriptor::new();
-    let vs = library.get_function(
-        vertex_fn_name,
-        None,
-    ).unwrap();
-    let fs = library.get_function(
-        fragment_fn_name,
-        None,
-    ).unwrap();
+    let vs = library.get_function(vertex_fn_name, None).unwrap();
+    let fs = library.get_function(fragment_fn_name, None).unwrap();
 
     ps.set_vertex_function(Some(&vs));
     ps.set_fragment_function(Some(&fs));
@@ -188,15 +168,19 @@ pub fn prepare_pipeline_state(
         .unwrap()
         .set_pixel_format(pixel_format);
 
-    device.new_render_pipeline_state(&ps)
-        .unwrap()
+    device.new_render_pipeline_state(&ps).unwrap()
 }
 
-pub fn handle_window_event(
+pub trait KeyboardHandler {
+    fn handle_keyboard_input(&self, input: KeyboardInput);
+}
+
+pub fn handle_window_event<T: KeyboardHandler>(
     event: WindowEvent,
     control_flow: &mut ControlFlow,
     layer: &MetalLayerRef,
     vp_size_buffer: &Buffer,
+    keyboard_handler: &T,
 ) {
     match event {
         WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
@@ -207,14 +191,15 @@ pub fn handle_window_event(
             });
             update_viewport_size(vp_size_buffer, [size.width, size.height]);
         }
+        WindowEvent::KeyboardInput { input, .. } => {
+            keyboard_handler.handle_keyboard_input(input);
+        }
         _ => {}
     }
 }
 
 fn prepare_render_pass_descriptor(descriptor: &RenderPassDescriptorRef, texture: &TextureRef) {
-    let color = descriptor.color_attachments()
-        .object_at(0)
-        .unwrap();
+    let color = descriptor.color_attachments().object_at(0).unwrap();
 
     color.set_texture(Some(texture));
     color.set_load_action(MTLLoadAction::Clear);
@@ -237,33 +222,24 @@ pub fn redraw(
 
     let render_pass = RenderPassDescriptor::new();
 
-    // use drawable_texture!
+    // use drawable_texture
     prepare_render_pass_descriptor(&render_pass, &drawable.texture());
     let command_buffer = command_queue.new_command_buffer();
     let encoder = command_buffer.new_render_command_encoder(&render_pass);
 
     encoder.set_render_pipeline_state(pipeline_state);
-    encoder.set_vertex_buffer(
-        VertexInput::Vertices as _,
-        Some(vertex_buffer),
-        0,
-    );
+    encoder.set_vertex_buffer(VertexInput::Vertices as _, Some(vertex_buffer), 0);
     encoder.set_vertex_buffer(
         VertexInput::ViewportSize as _,
         Some(viewport_size_buffer),
         0,
     );
-    encoder.set_fragment_texture(
-        TextureIndex::BaseColor as _,
-        Some(texture),
-    );
+    encoder.set_fragment_texture(TextureIndex::BaseColor as _, Some(texture));
 
-    encoder.draw_primitives(
-        MTLPrimitiveType::Triangle,
-        0,
-        6);
+    encoder.draw_primitives(MTLPrimitiveType::Triangle, 0, 6);
     encoder.end_encoding();
 
     command_buffer.present_drawable(&drawable);
     command_buffer.commit();
 }
+
