@@ -4,3 +4,4 @@
 
 */*.air
 */*.metallib
+.DS_Store
