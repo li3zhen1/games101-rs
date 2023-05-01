@@ -74,7 +74,7 @@ fragment float4 sampling_shader(
                                 texture2d<float> color_texture [[ texture(TextureIndexBaseColor) ]]
                                 )
 {
-    constexpr sampler texture_sampler (mag_filter::linear, min_filter::linear);
+    constexpr sampler texture_sampler (mag_filter::nearest, min_filter::nearest);
     const float4 color_sample = color_texture.sample(texture_sampler, in.texture_coord);
     return color_sample;
 }

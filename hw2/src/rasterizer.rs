@@ -119,10 +119,10 @@ impl Rasterizer {
 
     pub fn clear(&mut self, kind: BufferKind) {
         if kind.contains(BufferKind::Color) {
-            self.frame_buf = vec![vec4(0., 0., 0., 1.); self.w * self.h];
+            self.frame_buf.fill(vec4(0., 0., 0., 1.));
         }
         if kind.contains(BufferKind::Depth) {
-            self.depth_buf = vec![f32::INFINITY; self.w * self.h];
+            self.depth_buf.fill(f32::INFINITY);
         }
     }
 
@@ -164,10 +164,13 @@ impl Rasterizer {
                                     t.set_vertex(it.0, it.1.xyz());
                                 });
 
-                            vec![vi.x, vi.y, vi.z].iter().enumerate().for_each(|(n, &it)| {
-                                let color = col[it as usize];
-                                t.set_color_rgb(n, color.x, color.y, color.z);
-                            });
+                            vec![vi.x, vi.y, vi.z]
+                                .iter()
+                                .enumerate()
+                                .for_each(|(n, &it)| {
+                                    let color = col[it as usize];
+                                    t.set_color_rgb(n, color.x, color.y, color.z);
+                                });
                             t
                         })
                         .collect()
@@ -225,6 +228,7 @@ impl Rasterizer {
         self.draw_line(t.c(), t.a());
     }
 
+    #[inline]
     pub fn set_pixel(&mut self, point: (usize, usize), color: Vec4) {
         if point.0 >= self.w || point.1 >= self.h {
             return;
@@ -234,6 +238,7 @@ impl Rasterizer {
         self.frame_buf[i] = color;
     }
 
+    #[inline]
     pub fn set_depth(&mut self, point: (usize, usize), depth: f32) {
         if point.0 >= self.w || point.1 >= self.h {
             return;
@@ -243,6 +248,18 @@ impl Rasterizer {
         self.depth_buf[i] = depth;
     }
 
+    #[inline]
+    pub fn set_pixel_nocheck(&mut self, i: usize, color: Vec4) {
+
+        self.frame_buf[i] = color;
+    }
+
+    #[inline]
+    pub fn set_depth_nocheck(&mut self, i: usize, depth: f32) {
+        self.depth_buf[i] = depth;
+    }
+
+
     pub fn get_index(&self, x: usize, y: usize) -> usize {
         return (self.h - y) * self.w + x;
     }
@@ -251,20 +268,26 @@ impl Rasterizer {
         let bbox = t.bounding_box();
         for i in bbox.x_range() {
             for j in bbox.y_range() {
-                let c = compute_barycentric_2d(i as _, j as _, &t.v);
+
+                if i >= self.w || j >= self.h {
+                    continue;
+                };
+
+                let c = compute_barycentric_2d(i as f32 + 0.5, j as f32 + 0.5, &t.v);
 
                 let inside = c.x >= 0. && c.y >= 0. && c.z >= 0.;
+
                 if inside {
-                    let colors =
-                        Mat3::from_cols(t.color[0].xyz(), t.color[1].xyz(), t.color[2].xyz());
-
                     let depth = t.v[0].z * c.x + t.v[1].z * c.y + t.v[2].z * c.z;
+                    let index = self.get_index(i, j);
 
-                    let color = (colors * c).extend(1.);
+                    if depth < self.depth_buf[index] {
+                        let colors =
+                            Mat3::from_cols(t.color[0].xyz(), t.color[1].xyz(), t.color[2].xyz());
+                        let color = (colors * c).extend(1.);
 
-                    if depth < self.depth_buf[self.get_index(i, j)] {
-                        self.set_depth((i, j), depth);
-                        self.set_pixel((i, j), color);
+                        self.set_depth_nocheck(index, depth);
+                        self.set_pixel_nocheck(index, color);
                     }
                 }
             }
@@ -297,13 +320,9 @@ impl TextureConvertible for Rasterizer {
                     (it.x * 255.0) as u8,
                     (it.y * 255.0) as u8,
                     (it.z * 255.0) as u8,
-                    255,
+                    (it.w * 255.0) as u8,
                 ]
             })
             .collect()
     }
-}
-
-impl KeyboardHandler for Rasterizer {
-    fn handle_keyboard_input(&self, input: winit::event::KeyboardInput) {}
 }

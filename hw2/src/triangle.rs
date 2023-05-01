@@ -1,4 +1,4 @@
-use std::ops::{Range, Add, Mul};
+use std::ops::{Range};
 
 use glam::*;
 
@@ -10,10 +10,12 @@ pub struct Triangle {
 }
 
 pub struct Rect {
-    pub x: usize,
-    pub y: usize,
-    pub width: usize,
-    pub height: usize,
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    // pub width: f32,
+    // pub height: f32,
 }
 
 macro_rules! assert_color_is_rgba32float {
@@ -26,7 +28,6 @@ macro_rules! assert_color_is_rgba32float {
 }
 
 impl Triangle {
-    
     pub fn zeros() -> Self {
         Self {
             v: [
@@ -39,11 +40,7 @@ impl Triangle {
                 vec4(0.0, 0.0, 0.0, 0.0),
                 vec4(0.0, 0.0, 0.0, 0.0),
             ],
-            tex_coords: [
-                vec2(0.0, 0.0),
-                vec2(0.0, 0.0),
-                vec2(0.0, 0.0),
-            ],
+            tex_coords: [vec2(0.0, 0.0), vec2(0.0, 0.0), vec2(0.0, 0.0)],
             normal: [
                 vec3(0.0, 0.0, 0.0),
                 vec3(0.0, 0.0, 0.0),
@@ -125,16 +122,13 @@ impl Triangle {
             }
         }
 
-
         Rect {
-            x: x_min as usize,
-            y: y_min as usize,
-            width: (x_max - x_min) as usize,
-            height: (y_max - y_min) as usize,
+            x0: x_min,
+            y0: y_min,
+            x1: x_max,
+            y1: y_max,
         }
     }
-
-
 
     // //interpolated depth value
     // pub fn get_depth(&self, x: usize, y: usize) -> f32 {
@@ -155,44 +149,33 @@ impl Triangle {
     // }
 
     // pub fn get_color(&self, x: usize, y: usize) -> Vec3 {
-        
-    // }
 
+    // }
 }
 
 impl Rect {
-    pub fn x0(&self) -> usize {
-        self.x
+    fn x_start(&self) -> usize {
+        self.x0.floor() as _
     }
 
-    pub fn y0(&self) -> usize {
-        self.y
+    fn y_start(&self) -> usize {
+        self.y0.floor() as _
     }
 
-    pub fn x1(&self) -> usize {
-        self.x + self.width
+    fn x_end(&self) -> usize {
+        self.x1.floor() as _
     }
 
-    pub fn y1(&self) -> usize {
-        self.y + self.height
+    fn y_end(&self) -> usize {
+        self.y1.ceil() as _
     }
 
-    pub fn x_range(&self) -> Range<usize>{
-        if self.x0() < self.x1() {
-            return self.x0()..(self.x1()+1)
-        }
-        else {
-            return self.x1()..(self.x0()+1)
-        }
+    pub fn x_range(&self) -> Range<usize> {
+        self.x_start()..(self.x_end() + 1)
     }
 
-    pub fn y_range(&self) ->  Range<usize> {
-        if self.y0() < self.y1() {
-            return self.y0()..(self.y1()+1)
-        }
-        else {
-            return self.y1()..(self.y0()+1)
-        }
+    pub fn y_range(&self) -> Range<usize> {
+        self.y_start()..(self.y_end() + 1)
     }
 
 }
