@@ -1,7 +1,11 @@
+use crate::utils::image::{save_image, save_image_from_u8array};
 use crate::utils::render::TextureConvertible;
 use crate::{triangle::Triangle, utils::render::KeyboardHandler};
 use bitflags::bitflags;
 use glam::*;
+use std::borrow::BorrowMut;
+use std::ops::Range;
+use std::process::exit;
 use std::{collections::HashMap, ffi::c_void};
 
 bitflags! {
@@ -57,11 +61,14 @@ pub struct Rasterizer {
     ind_buf: HashMap<IndBufId, Vec<UVec3>>,
     col_buf: HashMap<ColBufId, Vec<Vec4>>,
     frame_buf: Vec<Vec4>,
-    depth_buf: Vec<f32>,
+    frame_buf_supersampled: Vec<Vec4>,
+    depth_buf_supersampled: Vec<f32>,
 
     model: Mat4,
     view: Mat4,
     projection: Mat4,
+
+    antialiasing: usize,
 }
 
 impl Rasterizer {
@@ -71,7 +78,7 @@ impl Rasterizer {
         id
     }
 
-    pub fn new(w: usize, h: usize) -> Self {
+    pub fn new(w: usize, h: usize, antialiasing: usize) -> Self {
         Self {
             w,
             h,
@@ -79,11 +86,16 @@ impl Rasterizer {
             pos_buf: HashMap::new(),
             ind_buf: HashMap::new(),
             col_buf: HashMap::new(),
+
             frame_buf: vec![vec4(0., 0., 0., 1.); w * h],
-            depth_buf: vec![f32::INFINITY; w * h],
+            frame_buf_supersampled: vec![vec4(0., 0., 0., 1.); w * h * antialiasing * antialiasing],
+            // with antialiasing size?
+            depth_buf_supersampled: vec![f32::INFINITY; w * h * antialiasing * antialiasing],
+
             model: Mat4::IDENTITY,
             view: Mat4::IDENTITY,
             projection: Mat4::IDENTITY,
+            antialiasing,
         }
     }
 
@@ -119,10 +131,10 @@ impl Rasterizer {
 
     pub fn clear(&mut self, kind: BufferKind) {
         if kind.contains(BufferKind::Color) {
-            self.frame_buf.fill(vec4(0., 0., 0., 1.));
+            self.frame_buf_supersampled.fill(vec4(0., 0., 0., 1.));
         }
         if kind.contains(BufferKind::Depth) {
-            self.depth_buf.fill(f32::INFINITY);
+            self.depth_buf_supersampled.fill(f32::INFINITY);
         }
     }
 
@@ -176,8 +188,46 @@ impl Rasterizer {
                         .collect()
                 };
 
-                for t in triangles {
-                    self.rasterize_triangle(&t);
+                for (i, t) in triangles.iter().enumerate() {
+                    self.rasterize_triangle_antialiased(&t);
+                }
+
+                // let u8array: Vec<u8> = self
+                //     .depth_buf_supersampled
+                //     .iter()
+                //     .flat_map(|it| {
+                //         [
+                //             (it + 2.) as u8,
+                //             (it + 2.) as u8,
+                //             (it + 2.) as u8,
+                //             (it + 2.) as u8,
+                //         ]
+                //     })
+                //     .collect();
+
+                // save_image_from_u8array(
+                //     &u8array,
+                //     (self.w * self.antialiasing) as u32,
+                //     (self.h * self.antialiasing) as _,
+                //     "image2.png",
+                // );
+                // exit(0);
+
+                let sampling_count = (self.antialiasing * self.antialiasing) as f32;
+
+                for i in 0..self.w {
+                    for j in 0..self.h {
+                        let mut color = vec4(0., 0., 0., 1.);
+                        for k in 0..self.antialiasing {
+                            for l in 0..self.antialiasing {
+                                let idx = (i * self.antialiasing + k)
+                                    + (j * self.antialiasing + l) * self.w * self.antialiasing;
+                                color += self.frame_buf_supersampled[idx];
+                            }
+                        }
+                        color /= sampling_count;
+                        self.frame_buf[i + j * self.w] = color;
+                    }
                 }
             }
             PrimitiveKind::Line => {}
@@ -245,54 +295,109 @@ impl Rasterizer {
         };
 
         let i = (self.h - point.1) * self.w + point.0;
-        self.depth_buf[i] = depth;
+        self.depth_buf_supersampled[i] = depth;
     }
 
-    #[inline]
-    pub fn set_pixel_nocheck(&mut self, i: usize, color: Vec4) {
+    // #[inline]
+    // pub fn set_pixel_nocheck(&mut self, i: usize, color: Vec4) {
+    //     self.frame_buf[i] = color;
+    // }
 
-        self.frame_buf[i] = color;
-    }
-
-    #[inline]
-    pub fn set_depth_nocheck(&mut self, i: usize, depth: f32) {
-        self.depth_buf[i] = depth;
-    }
-
+    // #[inline]
+    // pub fn set_depth_nocheck(&mut self, i: usize, depth: f32) {
+    //     self.depth_buf[i] = depth;
+    // }
 
     pub fn get_index(&self, x: usize, y: usize) -> usize {
         return (self.h - y) * self.w + x;
     }
 
-    pub fn rasterize_triangle(&mut self, t: &Triangle) {
+    pub fn get_index_for_antialiased(&self, x: usize, y: usize) -> usize {
+        return (self.h * self.antialiasing - y) * self.w * self.antialiasing + x;
+    }
+
+    fn get_sample_points(&self, x: f32, y: f32) -> Vec<(f32, f32, usize, usize)> {
+        let half_subpixel_size = 0.5 / self.antialiasing as f32;
+        let mut points = vec![];
+        for i in 0..self.antialiasing {
+            for j in 0..self.antialiasing {
+                let x = x + (i as f32 * 2. + 1.) * half_subpixel_size;
+                let y = y + (j as f32 * 2. + 1.) * half_subpixel_size;
+                points.push((
+                    x,
+                    y,
+                    i + self.antialiasing * x as usize,
+                    j + self.antialiasing * y as usize,
+                ));
+            }
+        }
+        points
+    }
+
+    fn rasterize_triangle_antialiased(&mut self, t: &Triangle) {
         let bbox = t.bounding_box();
-        for i in bbox.x_range() {
-            for j in bbox.y_range() {
+        // let antialiasing = self.antialiasing as f32;
 
-                if i >= self.w || j >= self.h {
-                    continue;
-                };
+        let points: Vec<(f32, f32, usize, usize)> = bbox
+            .x_range()
+            .flat_map(|x| {
+                bbox.y_range()
+                    .map(move |y| (x as f32, y as f32))
+            })
+            .flat_map(|(i, j)| self.get_sample_points(i as _, j as _))
+            .collect();
 
-                let c = compute_barycentric_2d(i as f32 + 0.5, j as f32 + 0.5, &t.v);
+        for (x, y, i, j) in points {
+            let c = compute_barycentric_2d(x, y, &t.v);
+            let inside = c.x >= 0. && c.y >= 0. && c.z >= 0.;
 
-                let inside = c.x >= 0. && c.y >= 0. && c.z >= 0.;
+            if !inside {
+                continue;
+            }
 
-                if inside {
-                    let depth = t.v[0].z * c.x + t.v[1].z * c.y + t.v[2].z * c.z;
-                    let index = self.get_index(i, j);
+            if i >= self.w * self.antialiasing || j >= self.h * self.antialiasing {
+                continue;
+            }
 
-                    if depth < self.depth_buf[index] {
-                        let colors =
-                            Mat3::from_cols(t.color[0].xyz(), t.color[1].xyz(), t.color[2].xyz());
-                        let color = (colors * c).extend(1.);
-
-                        self.set_depth_nocheck(index, depth);
-                        self.set_pixel_nocheck(index, color);
-                    }
-                }
+            let supersampled_index = self.get_index_for_antialiased(i, j);
+            let depth = t.v[0].z * c.x + t.v[1].z * c.y + t.v[2].z * c.z;
+            if depth < self.depth_buf_supersampled[supersampled_index] {
+                let colors = Mat3::from_cols(t.color[0].xyz(), t.color[1].xyz(), t.color[2].xyz());
+                let color = (colors * c).extend(1.);
+                self.frame_buf_supersampled[supersampled_index] = color;
+                self.depth_buf_supersampled[supersampled_index] = depth;
             }
         }
     }
+
+    // pub fn rasterize_triangle(&mut self, t: &Triangle) {
+    //     let bbox = t.bounding_box();
+    //     for i in bbox.x_range() {
+    //         for j in bbox.y_range() {
+    //             if i >= self.w || j >= self.h {
+    //                 continue;
+    //             };
+
+    //             let c = compute_barycentric_2d(i as f32 + 0.5, j as f32 + 0.5, &t.v);
+
+    //             let inside = c.x >= 0. && c.y >= 0. && c.z >= 0.;
+
+    //             if inside {
+    //                 let depth = t.v[0].z * c.x + t.v[1].z * c.y + t.v[2].z * c.z;
+    //                 let index = self.get_index(i, j);
+
+    //                 if depth < self.depth_buf[index] {
+    //                     let colors =
+    //                         Mat3::from_cols(t.color[0].xyz(), t.color[1].xyz(), t.color[2].xyz());
+    //                     let color = (colors * c).extend(1.);
+
+    //                     self.set_depth_nocheck(index, depth);
+    //                     self.set_pixel_nocheck(index, color);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 impl TextureConvertible for Rasterizer {

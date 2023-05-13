@@ -40,7 +40,7 @@ fn main() {
 
     let dump_image = args.len() >= 3;
 
-    let mut r = Rasterizer::new(INITIAL_WINDOW_WIDTH as _, INITIAL_WINDOW_HEIGHT as _);
+    let mut r = Rasterizer::new(INITIAL_WINDOW_WIDTH as _, INITIAL_WINDOW_HEIGHT as _, 2);
 
     let pos_id = r.load_positions(vec![
         vec3(2.0, 0.0, -2.0),
@@ -73,6 +73,8 @@ fn main() {
     r.set_projection(get_projection_matrix(45.0, 1.0, 0.1, 50.0));
 
     r.draw(&pos_id, &ind_id, &col_id, PrimitiveKind::Triangle);
+
+    
 
     if dump_image {
         let angle = match args.get(2) {

@@ -154,19 +154,19 @@ impl Triangle {
 }
 
 impl Rect {
-    fn x_start(&self) -> usize {
+    pub fn x_start(&self) -> usize {
         self.x0.floor() as _
     }
 
-    fn y_start(&self) -> usize {
+    pub fn y_start(&self) -> usize {
         self.y0.floor() as _
     }
 
-    fn x_end(&self) -> usize {
+    pub fn x_end(&self) -> usize {
         self.x1.floor() as _
     }
 
-    fn y_end(&self) -> usize {
+    pub fn y_end(&self) -> usize {
         self.y1.ceil() as _
     }
 
