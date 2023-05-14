@@ -2,6 +2,8 @@ mod rasterizer;
 mod transform;
 mod triangle;
 mod utils;
+mod texture;
+mod shader;
 use std::env;
 
 use crate::rasterizer::Rasterizer;

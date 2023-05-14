@@ -1,0 +1,28 @@
+[package]
+name = "hw3"
+version = "0.1.0"
+edition = "2021"
+
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[build-dependencies]
+cbindgen = "0.24"
+
+[dependencies]
+core-graphics-types = "0.1"
+cocoa = "0.24"
+core-graphics = "0.22"
+image = "0.24"
+metal = "0.24"
+winit = "0.28"
+glam = "0.24"
+bitflags = "2.2.1"
+
+[dependencies.objc]
+version = "0.2"
+features = ["objc_exception"]
+
+
+
