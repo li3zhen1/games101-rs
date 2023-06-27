@@ -2,8 +2,9 @@ use std::ops::{Range};
 
 use glam::*;
 
+#[derive(Clone)]
 pub struct Triangle {
-    pub v: [Vec3; 3],
+    pub v: [Vec4; 3],
     pub color: [Vec4; 3],
     pub tex_coords: [Vec2; 3],
     pub normal: [Vec3; 3],
@@ -31,9 +32,9 @@ impl Triangle {
     pub fn zeros() -> Self {
         Self {
             v: [
-                vec3(0.0, 0.0, 0.0),
-                vec3(0.0, 0.0, 0.0),
-                vec3(0.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
+                vec4(0.0, 0.0, 0.0, 0.0),
             ],
             color: [
                 vec4(0.0, 0.0, 0.0, 0.0),
@@ -49,19 +50,19 @@ impl Triangle {
         }
     }
 
-    pub fn a(&self) -> Vec3 {
+    pub fn a(&self) -> Vec4 {
         self.v[0]
     }
 
-    pub fn b(&self) -> Vec3 {
+    pub fn b(&self) -> Vec4 {
         self.v[1]
     }
 
-    pub fn c(&self) -> Vec3 {
+    pub fn c(&self) -> Vec4 {
         self.v[2]
     }
 
-    pub fn set_vertex(&mut self, index: usize, v: Vec3) {
+    pub fn set_vertex(&mut self, index: usize, v: Vec4) {
         self.v[index] = v;
     }
 
@@ -98,7 +99,8 @@ impl Triangle {
     }
 
     pub fn to_vec4(&self) -> [Vec4; 3] {
-        self.v.map(|v| v.extend(1.0))
+        self.v
+        // self.v.map(|v| v.extend(1.0))
     }
 
     pub fn bounding_box(&self) -> Rect {

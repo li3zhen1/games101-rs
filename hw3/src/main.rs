@@ -1,4 +1,5 @@
 mod rasterizer;
+mod loader;
 mod transform;
 mod triangle;
 mod utils;
@@ -11,13 +12,17 @@ use crate::transform::*;
 
 use core_graphics::geometry::CGSize;
 use glam::{uvec3, vec3, vec4};
+use loader::load_obj;
 use metal::{Device, MTLPixelFormat, MTLResourceOptions};
 use rasterizer::{BufferKind, PrimitiveKind};
+use shader::{vertex_shader, phong_fragment_shader};
+use texture::Texture;
 use utils::{image::save_image, render::*, shader_types::TexturedVertex};
 use winit::{
     event::{VirtualKeyCode, WindowEvent, ElementState},
     event_loop::{ControlFlow, EventLoop},
 };
+
 
 use objc::rc::autoreleasepool;
 use winit::event::Event;
@@ -37,36 +42,34 @@ const INITIAL_WINDOW_WIDTH: u32 = 700;
 const INITIAL_WINDOW_HEIGHT: u32 = 700;
 const DELTA_ANGLE: f32 = 1.;
 
+
+
+const ASSET_PATH: &str = "models/spot/";
+const MODEL_PATH: &str = "models/spot/spot_triangulated_good.obj";
+const TEXTURE_PATH: &str = "models/spot/spot_texture.png";
+
 fn main() {
+
+
+    
+
+
+
+
+
     let args: Vec<String> = env::args().collect();
 
     let dump_image = args.len() >= 3;
 
-    let mut r = Rasterizer::new(INITIAL_WINDOW_WIDTH as _, INITIAL_WINDOW_HEIGHT as _, 3);
-
-    let pos_id = r.load_positions(vec![
-        vec3(2.0, 0.0, -2.0),
-        vec3(0.0, 2.0, -2.0),
-        vec3(-2.0, 0.0, -2.0),
-
-        vec3(3.5, -1., -5.),
-        vec3(2.5, 1.5, -5.),
-        vec3(-1., 0.5, -5.),
-    ]);
-
-    let ind_id = r.load_indices(vec![uvec3(0, 1, 2), uvec3(3, 4, 5)]);
-
-    let col_id = r.load_colors(vec![
-        vec4(217.0, 238.0, 185.0, 255.),
-        vec4(217.0, 238.0, 185.0, 255.),
-        vec4(217.0, 238.0, 185.0, 255.),
-        vec4(185.0, 217.0, 238.0, 255.),
-        vec4(185.0, 217.0, 238.0, 255.),
-        vec4(185.0, 217.0, 238.0, 255.),
-    ]);
-
-    let eye_pos = vec3(0.0, 0.0, 5.0);
-    let angle = 0f32;
+    let mut r = Rasterizer::new(INITIAL_WINDOW_WIDTH as _, INITIAL_WINDOW_HEIGHT as _, 2);
+    
+    
+    let triangle_lists = loader::load_obj(MODEL_PATH);
+    r.set_texture(Texture::new(TEXTURE_PATH));
+    r.set_vertex_shader(vertex_shader);
+    r.set_fragment_shader(phong_fragment_shader);
+    let eye_pos = vec3(0.0, 0.0, 10.0);
+    let mut angle = 0f32;
 
     r.clear(BufferKind::Color | BufferKind::Depth);
 
@@ -74,10 +77,8 @@ fn main() {
     r.set_view(get_view_matrix(eye_pos));
     r.set_projection(get_projection_matrix(45.0, 1.0, 0.1, 50.0));
 
-    r.draw(&pos_id, &ind_id, &col_id, PrimitiveKind::Triangle);
-
+    r.draw_triangle_list(&triangle_lists[0]);
     
-
     if dump_image {
         let angle = match args.get(2) {
             Some(arg) => arg.parse::<f32>().unwrap_or(0.),
@@ -85,7 +86,7 @@ fn main() {
         };
         r.set_model(get_model_matrix(angle));
         save_image(&r, args.get(3).unwrap_or(&String::from("output.png")));
-        return;
+        return; 
     }
 
     let event_loop = EventLoop::new();
@@ -93,7 +94,7 @@ fn main() {
         &event_loop,
         INITIAL_WINDOW_WIDTH,
         INITIAL_WINDOW_HEIGHT,
-        "HW1_Triangle",
+        "HW3",
     );
 
     let device = Device::system_default().unwrap();
@@ -135,7 +136,8 @@ fn main() {
 
     let command_queue = device.new_command_queue();
 
-    let mut angle = 0f32;
+
+    let mut angle_changed = true;
 
     event_loop.run(move |event, _, control_flow| {
         autoreleasepool(|| {
@@ -158,10 +160,12 @@ fn main() {
                         match input.virtual_keycode {
                             Some(VirtualKeyCode::A) => {
                                 angle += DELTA_ANGLE;
+                                angle_changed = true;
                                 // println!("angle: {}", angle);
                             }
                             Some(VirtualKeyCode::D) => {
                                 angle -= DELTA_ANGLE;
+                                angle_changed = true;
                                 // println!("angle: {}", angle);
                             }
                             _ => {}
@@ -171,9 +175,12 @@ fn main() {
                 },
                 Event::MainEventsCleared => window.request_redraw(),
                 Event::RedrawRequested(_) => {
+                    if !angle_changed {
+                        return;
+                    }
                     r.clear(BufferKind::Color | BufferKind::Depth);
                     r.set_model(get_model_matrix(angle));
-                    r.draw(&pos_id, &ind_id, &col_id, PrimitiveKind::Triangle);
+                    r.draw_triangle_list(&triangle_lists[0]);
                     update_texture(&r, &texture);
                     redraw(
                         &layer,
@@ -183,6 +190,7 @@ fn main() {
                         &viewport_size_buffer,
                         &texture,
                     );
+                    angle_changed = false;
                 }
 
                 _ => {}

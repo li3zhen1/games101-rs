@@ -19,6 +19,7 @@ metal = "0.24"
 winit = "0.28"
 glam = "0.24"
 bitflags = "2.2.1"
+tobj = "4.0"
 
 [dependencies.objc]
 version = "0.2"

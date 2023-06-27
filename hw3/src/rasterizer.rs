@@ -1,11 +1,10 @@
+use crate::texture::Texture;
+use crate::triangle;
 use crate::utils::image::{save_image, save_image_from_u8array};
 use crate::utils::render::TextureConvertible;
-use crate::{triangle::Triangle, utils::render::KeyboardHandler};
+use crate::{shader::*, triangle::Triangle, utils::render::KeyboardHandler};
 use bitflags::bitflags;
 use glam::*;
-use std::borrow::BorrowMut;
-use std::ops::Range;
-use std::process::exit;
 use std::{collections::HashMap, ffi::c_void};
 
 bitflags! {
@@ -18,7 +17,7 @@ bitflags! {
 }
 
 #[inline]
-fn compute_barycentric_2d(x: f32, y: f32, v: &[Vec3; 3]) -> Vec3 {
+fn compute_barycentric_2d(x: f32, y: f32, v: &[Vec4; 3]) -> Vec3 {
     let c1 = (x * (v[1].y - v[2].y) + (v[2].x - v[1].x) * y + v[1].x * v[2].y - v[2].x * v[1].y)
         / (v[0].x * (v[1].y - v[2].y) + (v[2].x - v[1].x) * v[0].y + v[1].x * v[2].y
             - v[2].x * v[1].y);
@@ -30,7 +29,6 @@ fn compute_barycentric_2d(x: f32, y: f32, v: &[Vec3; 3]) -> Vec3 {
             - v[1].x * v[0].y);
     vec3(c1, c2, c3)
 }
-
 
 pub enum PrimitiveKind {
     Line,
@@ -46,7 +44,6 @@ pub struct IndBufId(usize);
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub struct ColBufId(usize);
 
-#[derive(Default)]
 pub struct Rasterizer {
     w: usize,
     h: usize,
@@ -57,6 +54,8 @@ pub struct Rasterizer {
     col_buf: HashMap<ColBufId, Vec<Vec4>>,
     nor_buf: HashMap<ColBufId, Vec<Vec4>>,
 
+    tex_coord: HashMap<PosBufId, Vec<Vec2>>,
+
     frame_buf: Vec<Vec4>,
     frame_buf_supersampled: Vec<Vec4>,
     depth_buf_supersampled: Vec<f32>,
@@ -66,6 +65,10 @@ pub struct Rasterizer {
     projection: Mat4,
 
     antialiasing: usize,
+
+    texture: Option<Texture>,
+    vertex_shader: VertexShaderFn,
+    fragment_shader: FragmentShaderFn,
 }
 
 impl Rasterizer {
@@ -85,6 +88,8 @@ impl Rasterizer {
             col_buf: HashMap::new(),
             nor_buf: HashMap::new(),
 
+            tex_coord: HashMap::new(),
+
             frame_buf: vec![vec4(0., 0., 0., 1.); w * h],
             frame_buf_supersampled: vec![vec4(0., 0., 0., 1.); w * h * antialiasing * antialiasing],
             // with antialiasing size?
@@ -94,6 +99,11 @@ impl Rasterizer {
             view: Mat4::IDENTITY,
             projection: Mat4::IDENTITY,
             antialiasing,
+
+            texture: None,
+
+            vertex_shader: |_| vec3(0., 0., 0.),
+            fragment_shader: |_| vec4(0., 0., 0., 1.),
         }
     }
 
@@ -130,6 +140,12 @@ impl Rasterizer {
     pub fn load_normals(&mut self, normals: Vec<Vec4>) -> ColBufId {
         let id = ColBufId(self.get_next_id());
         self.nor_buf.insert(id, normals);
+        id
+    }
+
+    pub fn load_tex_coords(&mut self, tex_coords: Vec<Vec2>) -> PosBufId {
+        let id = PosBufId(self.get_next_id());
+        self.tex_coord.insert(id, tex_coords);
         id
     }
 
@@ -177,7 +193,7 @@ impl Rasterizer {
                                 })
                                 .enumerate()
                                 .for_each(|it| {
-                                    t.set_vertex(it.0, it.1.xyz());
+                                    t.set_vertex(it.0, it.1);
                                 });
 
                             vec![vi.x, vi.y, vi.z]
@@ -238,6 +254,63 @@ impl Rasterizer {
         }
     }
 
+    pub fn draw_triangle_list(&mut self, triangles: &Vec<Triangle>) {
+        let f1 = 99.9f32 / 2.;
+        let f2 = 100.1f32 / 2.;
+        let vm = self.view * self.model;
+        let mvp = self.projection * self.view * self.model;
+
+        let triangles: Vec<(Triangle, _)> = triangles
+            .iter()
+            .map(|t| {
+
+                let viewspace_pos = t.v.map(|it| (vm * it).xyz());
+
+                let mut t: Triangle = t.clone();
+
+                let transformed_vertex =
+                    t.v.iter()
+                        .map(|&v| {
+                            let mut vec = mvp * v;
+                            vec /= vec.w;
+                            vec.x = 0.5 * (self.w as f32) * (vec.x + 1.0);
+                            vec.y = 0.5 * (self.h as f32) * (vec.y + 1.0);
+                            vec.z = vec.z * f1 + f2;
+                            vec
+                        })
+                        .enumerate()
+                        .collect::<Vec<_>>();
+
+                transformed_vertex.iter().for_each(|it| {
+                    t.set_vertex(it.0, it.1);
+                });
+                
+                (t, viewspace_pos)
+            })
+            .collect::<_>();
+
+        for (t, viewspace_pos) in triangles {
+            self.rasterize_triangle_antialiased_with_shader(&t, &viewspace_pos);
+        }
+
+        let sampling_count = (self.antialiasing * self.antialiasing) as f32;
+
+        for i in 0..self.w {
+            for j in 0..self.h {
+                let mut color = vec4(0., 0., 0., 1.);
+                for k in 0..self.antialiasing {
+                    for l in 0..self.antialiasing {
+                        let idx = (i * self.antialiasing + k)
+                            + (j * self.antialiasing + l) * self.w * self.antialiasing;
+                        color += self.frame_buf_supersampled[idx];
+                    }
+                }
+                color /= sampling_count;
+                self.frame_buf[i + j * self.w] = color;
+            }
+        }
+    }
+
     pub fn draw_line(&mut self, begin: Vec3, end: Vec3) {
         let color = vec4(1., 1., 1., 1.);
 
@@ -276,11 +349,11 @@ impl Rasterizer {
         }
     }
 
-    pub fn rasterize_wireframe(&mut self, t: &Triangle) {
-        self.draw_line(t.a(), t.b());
-        self.draw_line(t.b(), t.c());
-        self.draw_line(t.c(), t.a());
-    }
+    // pub fn rasterize_wireframe(&mut self, t: &Triangle) {
+    //     self.draw_line(t.a(), t.b());
+    //     self.draw_line(t.b(), t.c());
+    //     self.draw_line(t.c(), t.a());
+    // }
 
     #[inline]
     pub fn set_pixel(&mut self, point: (usize, usize), color: Vec4) {
@@ -344,10 +417,7 @@ impl Rasterizer {
 
         let points: Vec<(f32, f32, usize, usize)> = bbox
             .x_range()
-            .flat_map(|x| {
-                bbox.y_range()
-                    .map(move |y| (x as f32, y as f32))
-            })
+            .flat_map(|x| bbox.y_range().map(move |y| (x as f32, y as f32)))
             .flat_map(|(i, j)| self.get_sample_points(i as _, j as _))
             .collect();
 
@@ -372,6 +442,67 @@ impl Rasterizer {
                 self.depth_buf_supersampled[supersampled_index] = depth;
             }
         }
+    }
+
+    fn rasterize_triangle_antialiased_with_shader(&mut self, t: &Triangle, view_pos: &[Vec3; 3]) {
+        let bbox = t.bounding_box();
+        // let antialiasing = self.antialiasing as f32;
+
+        let points: Vec<(f32, f32, usize, usize)> = bbox
+            .x_range()
+            .flat_map(|x| bbox.y_range().map(move |y| (x as f32, y as f32)))
+            .flat_map(|(i, j)| self.get_sample_points(i as _, j as _))
+            .collect();
+
+        match &self.texture {
+            Some(texture) => {
+                for (x, y, i, j) in points {
+                    let c = compute_barycentric_2d(x, y, &t.v);
+                    let inside = c.x >= 0. && c.y >= 0. && c.z >= 0.;
+
+                    if !inside {
+                        continue;
+                    }
+
+                    if i >= self.w * self.antialiasing || j >= self.h * self.antialiasing {
+                        continue;
+                    }
+
+                    let supersampled_index = self.get_index_for_antialiased(i, j);
+                    let depth = t.v[0].z * c.x + t.v[1].z * c.y + t.v[2].z * c.z;
+                    if depth < self.depth_buf_supersampled[supersampled_index] {
+                        let texcoord = vec2(
+                            t.tex_coords[0].x * c[0]
+                                + t.tex_coords[1].x * c[1]
+                                + t.tex_coords[2].x * c[2],
+                            t.tex_coords[0].y * c[0]
+                                + t.tex_coords[1].y * c[1]
+                                + t.tex_coords[2].y * c[2],
+                        );
+
+                        let color = texture.get_color_by_tex_coord(texcoord);
+                        self.frame_buf_supersampled[supersampled_index] = color.extend(1.);
+
+                        self.depth_buf_supersampled[supersampled_index] = depth;
+                    }
+                }
+            }
+            None => {
+                panic!("Referencing empty texture");
+            }
+        }
+    }
+
+    pub fn set_texture(&mut self, texture: Texture) {
+        self.texture = Some(texture);
+    }
+
+    pub fn set_vertex_shader(&mut self, vertex_shader: VertexShaderFn) {
+        self.vertex_shader = vertex_shader;
+    }
+
+    pub fn set_fragment_shader(&mut self, fragment_shader: FragmentShaderFn) {
+        self.fragment_shader = fragment_shader;
     }
 
     // pub fn rasterize_triangle(&mut self, t: &Triangle) {
