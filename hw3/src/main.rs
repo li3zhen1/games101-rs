@@ -49,14 +49,6 @@ const MODEL_PATH: &str = "models/spot/spot_triangulated_good.obj";
 const TEXTURE_PATH: &str = "models/spot/spot_texture.png";
 
 fn main() {
-
-
-    
-
-
-
-
-
     let args: Vec<String> = env::args().collect();
 
     let dump_image = args.len() >= 3;

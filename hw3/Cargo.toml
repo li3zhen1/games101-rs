@@ -8,14 +8,14 @@ edition = "2021"
 
 
 [build-dependencies]
-cbindgen = "0.24"
+cbindgen = "0.26"
 
 [dependencies]
 core-graphics-types = "0.1"
-cocoa = "0.24"
-core-graphics = "0.22"
+cocoa = "0.25"
+core-graphics = "0.23"
 image = "0.24"
-metal = "0.24"
+metal = "0.26"
 winit = "0.28"
 glam = "0.24"
 bitflags = "2.2.1"

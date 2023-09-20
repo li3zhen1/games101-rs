@@ -1,0 +1,3 @@
+/Users/lizhen/Projects/games101-rs/Assignment2/Games2/cmake-build-debug/CMakeFiles/Rasterizer.dir
+/Users/lizhen/Projects/games101-rs/Assignment2/Games2/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/lizhen/Projects/games101-rs/Assignment2/Games2/cmake-build-debug/CMakeFiles/rebuild_cache.dir
