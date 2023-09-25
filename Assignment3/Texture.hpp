@@ -30,5 +30,7 @@ public:
         return Eigen::Vector3f(color[0], color[1], color[2]);
     }
 
+    Eigen::Vector3f getColorBilinear(float u, float v);
+
 };
 #endif //RASTERIZER_TEXTURE_H
