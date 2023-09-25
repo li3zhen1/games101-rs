@@ -6,3 +6,6 @@
 */*.metallib
 .DS_Store
 cmake-build-debug
+
+.idea
+build
