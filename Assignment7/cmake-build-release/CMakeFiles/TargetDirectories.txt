@@ -1,0 +1,3 @@
+/Users/lizhen/Projects/games101-rs/Assignment7/cmake-build-release/CMakeFiles/RayTracing.dir
+/Users/lizhen/Projects/games101-rs/Assignment7/cmake-build-release/CMakeFiles/edit_cache.dir
+/Users/lizhen/Projects/games101-rs/Assignment7/cmake-build-release/CMakeFiles/rebuild_cache.dir
