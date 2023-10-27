@@ -1,5 +1,18 @@
-# games101-rs
+# Games 101 C++ and Rust implementation
 
-A simple implementation of [Games 101](https://sites.cs.ucsb.edu/~lingqi/teaching/games101.html) with Rust and Metal. (WIP)
+
+## C++ Implementation
+
+![normal](./normal.png)
+![phong](./phong.png)
+![texture](./texture.png)
+![displacement](./displacement.png)
+![bump](./bump.png)
+![Bezier](./Bezier.png)
+![RayTracing](./RayTracing.png)
+![RayTracing](./RayTracing2.png)
+
+## Rust + Metal Implementation (WIP)
+
 
 ![screenshot](./hw3/Screenshot%202023-09-12%20at%2016.04.27.png)
